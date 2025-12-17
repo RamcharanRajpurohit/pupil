@@ -278,4 +278,63 @@ export const api = {
     await delay(2000);
     return mockHomeworkDeck;
   },
+
+  // AI-Generated Assessments from pupil-agents API
+  async getTeacherAssessments(limit: number = 50, offset: number = 0): Promise<any> {
+    try {
+      // Use import.meta.env for Vite environment variables
+      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API || 'http://localhost:8080';
+      const response = await fetch(
+        `${PUPIL_AGENTS_API}/api/assessments/teacher?limit=${limit}&offset=${offset}`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch teacher assessments: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching teacher assessments:', error);
+      throw error;
+    }
+  },
+
+  async getAIAssessmentById(assessmentId: string): Promise<any> {
+    try {
+      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API || 'http://localhost:8080';
+      const response = await fetch(
+        `${PUPIL_AGENTS_API}/api/assessments/${assessmentId}`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch assessment: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching assessment by ID:', error);
+      throw error;
+    }
+  },
+
+  async getStudentAssessments(limit: number = 50, offset: number = 0): Promise<any> {
+    try {
+      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API || 'http://localhost:8080';
+      const response = await fetch(
+        `${PUPIL_AGENTS_API}/api/assessments/student?limit=${limit}&offset=${offset}`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch student assessments: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching student assessments:', error);
+      throw error;
+    }
+  },
 };

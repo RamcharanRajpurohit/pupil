@@ -206,6 +206,8 @@ export default function QuizPage() {
       onSubmit={handleSubmit}
       onExit={handleExit}
       showInstantFeedback={true}
+      enableSecurity={true}
+      maxViolations={3}
     />
   );
 }

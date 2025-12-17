@@ -14,6 +14,7 @@ import AssessmentPage from "./pages/AssessmentPage";
 import ProgressPage from "./pages/ProgressPage";
 import CourseProgressPage from "./pages/CourseProgressPage";
 import TestHistoryPage from "./pages/TestHistoryPage";
+import TestsPage from "./pages/TestsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +38,7 @@ const App = () => (
           <Route path="/progress" element={<ProgressPage />} />
           <Route path="/progress/course/:courseId" element={<CourseProgressPage />} />
           <Route path="/test-history" element={<TestHistoryPage />} />
+          <Route path="/tests" element={<TestsPage />} />
           <Route path="/courses" element={<DashboardPage />} />
           <Route path="/schedule" element={<DashboardPage />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

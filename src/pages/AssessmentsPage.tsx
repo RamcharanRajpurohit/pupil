@@ -2,9 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
 import { api } from '@/services/api';
-import { mockAssessments } from '@/services/mockData';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { TopicSelectionDialog } from '@/components/assessments/TopicSelectionDialog';
@@ -21,10 +20,14 @@ import {
   Loader2,
   Plus,
   Sparkles,
-  Upload
+  Upload,
+  BookOpen,
+  CheckCircle2,
+  XCircle,
+  AlertCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Assessment, AssessmentType } from '@/types';
+import type { Assessment, AssessmentType, AIAssessment, AIAssessmentsResponse } from '@/types';
 
 const typeConfig: Record<AssessmentType, { icon: typeof FileText; color: string; label: string }> = {
   'practice': { icon: FileText, color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', label: 'Practice' },
@@ -32,6 +35,18 @@ const typeConfig: Record<AssessmentType, { icon: typeof FileText; color: string;
   'progress': { icon: TrendingUp, color: 'bg-green-500/10 text-green-500 border-green-500/20', label: 'Progress' },
   'gap': { icon: AlertTriangle, color: 'bg-orange-500/10 text-orange-500 border-orange-500/20', label: 'Gap Analysis' },
   'class-quiz': { icon: Target, color: 'bg-primary/10 text-primary border-primary/20', label: 'Class Quiz' },
+};
+
+const difficultyColors = {
+  easy: 'bg-green-500/10 text-green-500 border-green-500/20',
+  medium: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20',
+  hard: 'bg-red-500/10 text-red-500 border-red-500/20',
+};
+
+const statusConfig = {
+  completed: { icon: CheckCircle2, color: 'text-green-500', label: 'Completed' },
+  failed: { icon: XCircle, color: 'text-red-500', label: 'Failed' },
+  pending: { icon: Loader2, color: 'text-yellow-500', label: 'Pending' },
 };
 
 interface RetryState {
@@ -45,6 +60,7 @@ export default function AssessmentsPage() {
   const location = useLocation();
   const { isAuthenticated } = useAppStore();
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [aiAssessments, setAiAssessments] = useState<AIAssessment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<AssessmentType | 'all'>('all');
   const [topicDialogOpen, setTopicDialogOpen] = useState(false);
@@ -74,15 +90,31 @@ export default function AssessmentsPage() {
   const loadAssessments = async () => {
     setIsLoading(true);
     try {
-      const data = await api.getAssessments();
-      setAssessments(data);
+      // Load local practice tests
+      const localData = await api.getAssessments();
+      setAssessments(localData);
+      
+      // Load AI-generated assessments from pupil-agents API (only completed ones)
+      try {
+        const response: AIAssessmentsResponse = await api.getTeacherAssessments(50, 0);
+        // Only keep completed assessments for user view
+        const completedTests = response.assessments.filter(a => a.status === 'completed');
+        setAiAssessments(completedTests);
+      } catch (apiErr) {
+        console.error('Could not load AI assessments:', apiErr);
+        // Continue without AI assessments
+      }
+    } catch (err) {
+      console.error('Error loading assessments:', err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleStartTest = (assessmentId: string) => {
-    navigate(`/assessment/${assessmentId}`);
+  const handleStartTest = (assessmentId: string, isAI: boolean = false) => {
+    // All tests now use the same AssessmentPage UI
+    // Pass isAI flag through navigation state
+    navigate(`/assessment/${assessmentId}`, { state: { isAI } });
   };
 
   const handleRetryTest = (test: any) => {
@@ -109,9 +141,26 @@ export default function AssessmentsPage() {
     }
   };
 
+  // Convert AI assessments to local format for unified display
+  const aiAsAssessments: Assessment[] = aiAssessments.map(ai => ({
+    id: ai.id,
+    type: 'mock' as AssessmentType,
+    title: ai.test_name || 'AI Generated Test',
+    description: `${ai.subject || 'Subject'} - ${ai.test_type || 'Test'}`,
+    topics: ai.topics || [],
+    questions: [], // Will be loaded when starting
+    totalQuestions: ai.number_of_questions || 0,
+    status: 'available' as const,
+    createdAt: new Date(ai.created_at || Date.now()),
+    difficulty: ai.difficulty || 'medium',
+    estimatedTime: ai.estimated_time_minutes,
+  }));
+
+  const allAssessments = [...aiAsAssessments, ...assessments];
+  
   const filteredAssessments = filter === 'all' 
-    ? assessments 
-    : assessments.filter(a => a.type === filter);
+    ? allAssessments 
+    : allAssessments.filter(a => a.type === filter);
 
   const filters: { value: AssessmentType | 'all'; label: string }[] = [
     { value: 'all', label: 'All Tests' },
@@ -233,11 +282,12 @@ export default function AssessmentsPage() {
           ))}
         </div>
 
-        {/* Assessment Grid */}
+        {/* Assessment Grid - Unified display */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredAssessments.map(assessment => {
             const config = typeConfig[assessment.type];
             const Icon = config.icon;
+            const isAI = aiAssessments.some(ai => ai.id === assessment.id);
             
             return (
               <Card key={assessment.id} className="hover:shadow-lg transition-shadow">
@@ -251,6 +301,14 @@ export default function AssessmentsPage() {
                       <Badge variant="secondary">
                         <Calendar className="w-3 h-3 mr-1" />
                         Scheduled
+                      </Badge>
+                    )}
+                    {assessment.difficulty && (
+                      <Badge 
+                        variant="outline" 
+                        className={difficultyColors[assessment.difficulty]}
+                      >
+                        {assessment.difficulty}
                       </Badge>
                     )}
                   </div>
@@ -289,7 +347,7 @@ export default function AssessmentsPage() {
 
                   <Button 
                     className="w-full gap-2"
-                    onClick={() => handleStartTest(assessment.id)}
+                    onClick={() => handleStartTest(assessment.id, isAI)}
                     disabled={assessment.status === 'scheduled'}
                   >
                     <Play className="w-4 h-4" />

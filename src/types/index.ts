@@ -232,3 +232,67 @@ export interface ChatSession {
   createdAt: Date;
   updatedAt: Date;
 }
+
+// AI-Generated Assessment Types (from pupil-agents API)
+export interface AIAssessment {
+  id: string;
+  job_id: string;
+  status: 'completed' | 'failed' | 'pending';
+  created_at: string | null;
+  test_name: string | null;
+  subject: string | null;
+  test_type: string | null;
+  difficulty: 'easy' | 'medium' | 'hard' | null;
+  topics: string[] | null;
+  number_of_questions: number | null;
+  estimated_time_minutes: number | null;
+  total_marks: number | null;
+}
+
+export interface AIAssessmentDetail extends AIAssessment {
+  question_ids: string[];
+  request_params: any;
+  questions: AIQuestion[];
+}
+
+export interface AIQuestion {
+  _id: string;
+  questionText: string;
+  questionType: 'MCQ' | 'Integer' | 'Descriptive';
+  origin: string;
+  options: AIQuestionOption[];
+  answer: AIQuestionAnswer;
+  difficulty: 'easy' | 'medium' | 'hard';
+  grade: string;
+  topics: string[];
+  learningOutcomes: string[];
+  usageHistory: any[];
+  statistics: {
+    averageTimeSeconds: number;
+    successRate: number;
+    numberOfAttempts: number;
+  };
+  setId: string;
+  created_at: string;
+  updated_at: string;
+  assessment_job_id: string;
+  assessmentIds: string[];
+}
+
+export interface AIQuestionOption {
+  key: string;
+  text: string;
+}
+
+export interface AIQuestionAnswer {
+  key: string | string[];
+  explanation: string;
+}
+
+export interface AIAssessmentsResponse {
+  assessments: AIAssessment[];
+  count: number;
+  limit: number;
+  offset: number;
+  type: 'teacher' | 'student';
+}

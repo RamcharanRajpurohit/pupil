@@ -1,14 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   Clock, ChevronLeft, ChevronRight, Flag, X, Save, CheckCircle, 
-  AlertTriangle, Menu, XCircle
+  AlertTriangle, Menu, XCircle, Shield, Maximize
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Question } from '@/types';
+import { useExamSecurity, type ViolationType } from '@/hooks/useExamSecurity';
 
 export type QuestionStatus = 'not-visited' | 'not-answered' | 'answered' | 'marked' | 'answered-marked';
 
@@ -19,6 +20,8 @@ interface CBTExamProps {
   onSubmit: (answers: Record<string, number | null>, timeTaken: number) => void;
   onExit: () => void;
   showInstantFeedback?: boolean;
+  enableSecurity?: boolean;
+  maxViolations?: number;
 }
 
 interface QuestionState {
@@ -33,7 +36,9 @@ export function CBTExamInterface({
   timeLimit, 
   onSubmit, 
   onExit,
-  showInstantFeedback = false 
+  showInstantFeedback = false,
+  enableSecurity = true,
+  maxViolations = 3
 }: CBTExamProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [questionStates, setQuestionStates] = useState<Record<string, QuestionState>>(() => {
@@ -50,6 +55,35 @@ export function CBTExamInterface({
   const [showPalette, setShowPalette] = useState(true);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [violations, setViolations] = useState<Array<{ type: ViolationType; timestamp: number }>>([]);
+  const [examCompleted, setExamCompleted] = useState(false);
+  const [fullscreenAttempts, setFullscreenAttempts] = useState(0);
+  const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
+  const [fullscreenCountdown, setFullscreenCountdown] = useState(30);
+  const [autoSubmitPending, setAutoSubmitPending] = useState(false);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const autoSubmitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const handleFinalSubmitRef = useRef<() => Promise<void>>(async () => {});
+
+  // Handle security violations
+  const handleViolation = useCallback((type: ViolationType) => {
+    const violation = { type, timestamp: Date.now() };
+    setViolations(prev => {
+      const newViolations = [...prev, violation];
+      setFullscreenAttempts(attempts => attempts + 1);
+      setShowFullscreenPrompt(true);
+      setAutoSubmitPending(false);
+      return newViolations;
+    });
+  }, []);
+
+  // Exam security
+  const { violationCount, isFullscreen, exitFullscreen, enterFullscreen } = useExamSecurity({
+    onViolation: handleViolation,
+    autoSubmitOnViolation: true,
+    maxViolations,
+    enabled: enableSecurity && !examCompleted
+  });
 
   // Timer
   useEffect(() => {
@@ -57,7 +91,7 @@ export function CBTExamInterface({
       setTimeRemaining(prev => {
         if (prev <= 1) {
           clearInterval(interval);
-          handleFinalSubmit();
+          handleFinalSubmitRef.current();
           return 0;
         }
         return prev - 1;
@@ -173,14 +207,99 @@ export function CBTExamInterface({
     }
   };
 
-  const handleFinalSubmit = () => {
+  const handleFinalSubmit = useCallback(async () => {
+    if (examCompleted) return;
+    setExamCompleted(true);
+    
     const answers: Record<string, number | null> = {};
     questions.forEach(q => {
       answers[q.id] = questionStates[q.id].selectedAnswer;
     });
     const timeTaken = timeLimit * 60 - timeRemaining;
+    
+    // Exit fullscreen before submitting
+    if (enableSecurity) {
+      await exitFullscreen();
+    }
+    
     onSubmit(answers, timeTaken);
-  };
+  }, [examCompleted, questions, questionStates, timeLimit, timeRemaining, enableSecurity, exitFullscreen, onSubmit]);
+
+  // Keep a stable reference for effects that should not restart on timer ticks
+  useEffect(() => {
+    handleFinalSubmitRef.current = handleFinalSubmit;
+  }, [handleFinalSubmit]);
+
+  // Auto-submit on max violations
+  useEffect(() => {
+    if (violations.length >= maxViolations && !examCompleted) {
+      const timer = setTimeout(() => {
+        handleFinalSubmitRef.current();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [violations.length, maxViolations, examCompleted]);
+
+  // Fullscreen countdown enforcement
+  useEffect(() => {
+    if (!showFullscreenPrompt || examCompleted) {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      if (autoSubmitTimeoutRef.current) {
+        clearTimeout(autoSubmitTimeoutRef.current);
+        autoSubmitTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    // If attempts exhausted, show pending state and submit shortly
+    if (fullscreenAttempts >= 3) {
+      setAutoSubmitPending(true);
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      autoSubmitTimeoutRef.current = setTimeout(() => {
+        handleFinalSubmitRef.current();
+      }, 1500);
+      return () => {
+        if (autoSubmitTimeoutRef.current) clearTimeout(autoSubmitTimeoutRef.current);
+      };
+    }
+
+    setAutoSubmitPending(false);
+    setFullscreenCountdown(30);
+
+    // ensure countdown interval is running
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    countdownIntervalRef.current = setInterval(() => {
+      setFullscreenCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownIntervalRef.current as NodeJS.Timeout);
+          countdownIntervalRef.current = null;
+          handleFinalSubmitRef.current();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      if (autoSubmitTimeoutRef.current) {
+        clearTimeout(autoSubmitTimeoutRef.current);
+        autoSubmitTimeoutRef.current = null;
+      }
+    };
+  }, [showFullscreenPrompt, examCompleted, fullscreenAttempts]);
 
   // Question palette stats
   const stats = {
@@ -208,6 +327,83 @@ export function CBTExamInterface({
       return <Flag className="w-3 h-3" />;
     }
     return null;
+  };
+
+  // Get violation message
+  const getViolationMessage = (type: ViolationType): string => {
+    switch (type) {
+      case 'tab-switch': return 'Tab switching detected!';
+      case 'window-blur': return 'Window focus lost!';
+      case 'fullscreen-exit': return 'Fullscreen mode exited!';
+      case 'page-refresh': return 'Page refresh attempted!';
+      case 'right-click': return 'Right-click is disabled!';
+      case 'copy-paste': return 'Copy/paste is disabled!';
+      case 'keyboard-shortcut': return 'Keyboard shortcut blocked!';
+      case 'escape-key': return 'Escape key is disabled!';
+      default: return 'Security violation detected!';
+    }
+  };
+
+  // Violation warning overlay
+  // Fullscreen prompt with countdown
+  const FullscreenPrompt = () => {
+    if (!showFullscreenPrompt) return null;
+
+    const attemptsLeft = Math.max(0, 3 - fullscreenAttempts);
+
+    return (
+      <div className="fixed inset-0 z-[110] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <Card className="w-full max-w-md border-red-500 shadow-xl">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              {autoSubmitPending ? 'Auto-submitting...' : 'Fullscreen Required'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {autoSubmitPending
+                ? 'Maximum violations reached. Your test is being submitted.'
+                : 'Please re-enter fullscreen to continue your exam. The test will auto-submit if you do not comply within the timer or after 3 attempts.'}
+            </p>
+
+            <div className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-200">
+              <div className="flex items-center gap-2 text-red-700 font-semibold">
+                <Clock className="w-5 h-5" />
+                <span>{fullscreenCountdown}s</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Shield className="w-4 h-4 text-red-600" />
+                <span className="text-red-700">Attempts left: {attemptsLeft}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                className="flex-1"
+                disabled={autoSubmitPending}
+                onClick={async () => {
+                  await enterFullscreen();
+                  setShowFullscreenPrompt(false);
+                  setFullscreenCountdown(30);
+                }}
+              >
+                <Maximize className="w-4 h-4 mr-2" />
+                Re-enter Fullscreen
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                disabled={autoSubmitPending}
+                onClick={() => handleFinalSubmit()}
+              >
+                Submit Now
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   };
 
   // Submit confirmation modal
@@ -263,6 +459,9 @@ export function CBTExamInterface({
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
+      {/* Fullscreen Enforcement */}
+      <FullscreenPrompt />
+      
       {/* Header */}
       <header className="sticky top-0 z-50 bg-card border-b border-border shadow-sm">
         <div className="flex items-center justify-between px-4 h-14">
@@ -274,12 +473,28 @@ export function CBTExamInterface({
             <span className="text-sm font-medium hidden sm:inline">{title}</span>
           </div>
           
-          <div className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-lg font-bold transition-colors",
-            getTimerColor()
-          )}>
-            <Clock className="w-5 h-5" />
-            <span>{formatTime(timeRemaining)}</span>
+          <div className="flex items-center gap-3">
+            {enableSecurity && (
+              <div className="flex items-center gap-2 text-sm">
+                <Shield className={cn(
+                  "w-4 h-4",
+                  violations.length === 0 && "text-green-600",
+                  violations.length > 0 && violations.length < maxViolations && "text-orange-600",
+                  violations.length >= maxViolations && "text-red-600"
+                )} />
+                <span className="hidden sm:inline text-muted-foreground">
+                  {violations.length}/{maxViolations}
+                </span>
+              </div>
+            )}
+            
+            <div className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-lg font-mono text-lg font-bold transition-colors",
+              getTimerColor()
+            )}>
+              <Clock className="w-5 h-5" />
+              <span>{formatTime(timeRemaining)}</span>
+            </div>
           </div>
           
           <Button 
@@ -450,7 +665,7 @@ export function CBTExamInterface({
 
         {/* Question Palette Sidebar */}
         <aside className={cn(
-          "w-72 bg-card border-l border-border flex flex-col transition-all duration-300 max-h-[calc(100vh-3.5rem)]",
+          "w-72 bg-card border-l border-border flex flex-col transition-all duration-300 h-[calc(100vh-3.5rem)] max-h-[calc(100vh-3.5rem)]",
           "fixed lg:relative right-0 top-14 z-40",
           showPalette ? "translate-x-0" : "translate-x-full lg:translate-x-0 lg:w-0 lg:border-0"
         )}>
@@ -477,7 +692,7 @@ export function CBTExamInterface({
           </div>
           
           <ScrollArea className="flex-1 min-h-0 p-4">
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-5 gap-2 m-2">
               {questions.map((q, idx) => {
                 const state = questionStates[q.id];
                 return (
@@ -498,7 +713,7 @@ export function CBTExamInterface({
             </div>
           </ScrollArea>
           
-          <div className="p-4 border-t border-border flex-shrink-0 bg-card">
+          <div className="p-4 border-t border-border flex-shrink-0 bg-card sticky bottom-0">
             <Button 
               className="w-full" 
               size="lg"

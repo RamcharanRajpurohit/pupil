@@ -10,7 +10,7 @@ import {
   Loader2, CheckCircle, Home, ArrowRight, BarChart3, Clock, FileText
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Assessment, AssessmentAttempt } from '@/types';
+import type { Assessment, AssessmentAttempt, AIAssessmentDetail, Question } from '@/types';
 
 export default function AssessmentPage() {
   const { assessmentId } = useParams();
@@ -22,6 +22,7 @@ export default function AssessmentPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [examStarted, setExamStarted] = useState(false);
   const [result, setResult] = useState<AssessmentAttempt | null>(null);
+  const [isAIAssessment, setIsAIAssessment] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) { navigate('/login'); return; }
@@ -39,12 +40,74 @@ export default function AssessmentPage() {
     return () => resetAssessment();
   }, [assessmentId, isAuthenticated]);
 
+  const convertAIToAssessment = (aiData: AIAssessmentDetail): Assessment => {
+    const questions: Question[] = aiData.questions.map((q, idx) => {
+      const correctAnswerIndex = Array.isArray(q.answer.key) 
+        ? q.options.findIndex(opt => opt.key === q.answer.key[0])
+        : q.options.findIndex(opt => opt.key === q.answer.key);
+      
+      return {
+        id: q._id,
+        text: q.questionText,
+        type: 'mcq' as const,
+        options: q.options.map(opt => opt.text),
+        correctAnswer: correctAnswerIndex,
+        explanation: q.answer.explanation || '',
+        conceptId: q.topics[0] || 'general',
+        conceptName: q.topics[0] || 'General',
+        difficulty: q.difficulty,
+        points: 4,
+      };
+    });
+
+    return {
+      id: aiData.id,
+      title: aiData.test_name || 'AI Generated Test',
+      description: `${aiData.test_type || 'Practice'} test on ${aiData.topics?.join(', ') || 'various topics'}`,
+      type: 'mock',
+      questions,
+      timeLimit: aiData.estimated_time_minutes || 30,
+      totalQuestions: questions.length,
+      status: 'available',
+      difficulty: aiData.difficulty || 'medium',
+      topics: aiData.topics || undefined,
+      createdAt: aiData.created_at ? new Date(aiData.created_at) : new Date(),
+    };
+  };
+
   const loadAssessment = async () => {
     if (!assessmentId) return;
     setIsLoading(true);
-    const data = await api.getAssessment(assessmentId);
-    if (data) { setAssessment(data); startAssessment(data); }
-    setIsLoading(false);
+    
+    try {
+      // Check if this is an AI assessment from navigation state
+      const isAI = location.state?.isAI || false;
+      
+      if (isAI) {
+        console.log('Loading AI assessment with ID:', assessmentId);
+        setIsAIAssessment(true);
+        const aiData = await api.getAIAssessmentById(assessmentId);
+        console.log('AI assessment data received:', aiData);
+        
+        if (aiData) {
+          const convertedAssessment = convertAIToAssessment(aiData);
+          console.log('Converted assessment:', convertedAssessment);
+          setAssessment(convertedAssessment);
+          startAssessment(convertedAssessment);
+        } else {
+          console.error('No AI data returned');
+        }
+      } else {
+        setIsAIAssessment(false);
+        const data = await api.getAssessment(assessmentId);
+        if (data) { setAssessment(data); startAssessment(data); }
+      }
+    } catch (error) {
+      console.error('Error loading assessment:', error);
+      setAssessment(null);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSubmit = async (answers: Record<string, number | null>, timeTaken: number) => {
@@ -188,10 +251,17 @@ export default function AssessmentPage() {
                 </ul>
               </div>
 
-              <div className="p-4 bg-warning/10 border border-warning/20 rounded-lg">
+              <div className="p-4 bg-warning/10 border border-warning/20 rounded-lg space-y-2">
                 <p className="text-sm text-warning font-medium">
-                  ⚠️ Once you start, the timer cannot be paused. Make sure you're ready!
+                  ⚠️ Security Features Enabled
                 </p>
+                <ul className="text-xs text-warning space-y-1">
+                  <li>• Exam will run in mandatory fullscreen mode</li>
+                  <li>• Tab switching, window blur, and fullscreen exit will be tracked</li>
+                  <li>• Right-click, copy, paste, and shortcuts are disabled</li>
+                  <li>• Maximum 3 violations allowed - test auto-submits after that</li>
+                  <li>• Make sure you're ready before starting!</li>
+                </ul>
               </div>
 
               <div className="flex gap-3">
@@ -217,6 +287,8 @@ export default function AssessmentPage() {
       onSubmit={handleSubmit}
       onExit={handleExit}
       showInstantFeedback={false}
+      enableSecurity={true}
+      maxViolations={3}
     />
   );
 }
