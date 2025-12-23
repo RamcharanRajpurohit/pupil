@@ -483,10 +483,10 @@ export const api = {
 
   async getUploadedQuestions(studentId: string): Promise<any> {
     try {
-      const PUPIL_AI_API = import.meta.env.VITE_PUPILTREEAI_BASE_URL || 'http://0.0.0.0:8001';
+      const PUPIL_AI_API = import.meta.env.VITE_PUPILTREEAI_BASE_URL;
       
       const response = await fetch(
-        `${PUPIL_AI_API}/ahs-upload/upload-questions/${studentId}`
+        `${PUPIL_AI_API}/ahs-upload/uploaded-questions/${studentId}`
       );
       
       if (!response.ok) {

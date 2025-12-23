@@ -1,10 +1,10 @@
 // API Configuration
 export const API_CONFIG = {
   // Pupiltree AI API (pupiltree.ai folder)
-  PUPILTREEAI_BASE_URL: import.meta.env.VITE_PUPILTREEAI_BASE_URL || 'http://127.0.0.1:8000',
+  PUPILTREEAI_BASE_URL: import.meta.env.VITE_PUPILTREEAI_BASE_URL,
   
   // Pupiltree agents API (pupiltree-agents-develop) - not currently used
-  AGENTS_BASE_URL: import.meta.env.VITE_AGENTS_BASE_URL || 'http://0.0.0.0:8001/api',
+  AGENTS_BASE_URL: import.meta.env.VITE_AGENTS_BASE_URL ,
 };
 
 export const API_ENDPOINTS = {

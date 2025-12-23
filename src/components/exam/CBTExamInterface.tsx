@@ -67,6 +67,7 @@ export function CBTExamInterface({
   const [showFullscreenPrompt, setShowFullscreenPrompt] = useState(false);
   const [fullscreenCountdown, setFullscreenCountdown] = useState(30);
   const [autoSubmitPending, setAutoSubmitPending] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const autoSubmitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const handleFinalSubmitRef = useRef<() => Promise<void>>(async () => {});
@@ -502,6 +503,51 @@ export function CBTExamInterface({
     );
   };
 
+  // Exit confirmation modal
+  if (showExitConfirm) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md border-red-500">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              Exit Without Submitting?
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to exit? Your answers will NOT be submitted and will be lost.
+            </p>
+
+            <div className="p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
+              <p className="text-sm text-red-900 dark:text-red-100 font-medium">
+                ⚠️ Warning: To save your work, you must click "Submit Test" before exiting.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setShowExitConfirm(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={async () => {
+                  if (enableSecurity) {
+                    await exitFullscreen();
+                  }
+                  onExit();
+                }}
+              >
+                Exit Without Submitting
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   // Submit confirmation modal
   if (showSubmitConfirm) {
     return (
@@ -532,13 +578,13 @@ export function CBTExamInterface({
                 <span>Not Visited: {stats.notVisited}</span>
               </div>
             </div>
-            
+
             {stats.notAnswered + stats.notVisited > 0 && (
               <p className="text-sm text-warning">
                 You have {stats.notAnswered + stats.notVisited} unanswered questions!
               </p>
             )}
-            
+
             <div className="flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setShowSubmitConfirm(false)}>
                 Review
@@ -562,7 +608,7 @@ export function CBTExamInterface({
       <header className="sticky top-0 z-50 bg-card border-b border-border shadow-sm">
         <div className="flex items-center justify-between px-4 h-14">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={onExit}>
+            <Button variant="ghost" size="sm" onClick={() => setShowExitConfirm(true)}>
               <X className="w-4 h-4 mr-1" />
               Exit
             </Button>

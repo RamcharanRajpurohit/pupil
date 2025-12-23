@@ -67,7 +67,7 @@ export function UploadedAssessmentsList() {
     setIsLoading(true);
     try {
       const response = await api.getUploadedQuestions(user.id);
-      setUploads(response.uploads || []);
+      setUploads(response.documents || []);
     } catch (error) {
       console.error('Error loading uploaded assessments:', error);
     } finally {
