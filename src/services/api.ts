@@ -454,7 +454,7 @@ export const api = {
   // Assessment AI - PDF Upload & Question Extraction
   async uploadPDFQuestions(studentId: string, pdfFile: File): Promise<any> {
     try {
-      const PUPIL_AI_API = import.meta.env.VITE_PUPIL_AI_API || 'http://0.0.0.0:8001';
+      const PUPIL_AI_API = import.meta.env.VITE_PUPILTREEAI_BASE_URL || 'http://0.0.0.0:8001';
       
       const formData = new FormData();
       formData.append('student_id', studentId);
@@ -483,7 +483,7 @@ export const api = {
 
   async getUploadedQuestions(studentId: string): Promise<any> {
     try {
-      const PUPIL_AI_API = import.meta.env.VITE_PUPIL_AI_API || 'http://0.0.0.0:8001';
+      const PUPIL_AI_API = import.meta.env.VITE_PUPILTREEAI_BASE_URL || 'http://0.0.0.0:8001';
       
       const response = await fetch(
         `${PUPIL_AI_API}/ahs-upload/upload-questions/${studentId}`
@@ -503,7 +503,7 @@ export const api = {
 
   async getSpecificUpload(studentId: string, uploadId: string): Promise<any> {
     try {
-      const PUPIL_AI_API = import.meta.env.VITE_PUPIL_AI_API || 'http://0.0.0.0:8001';
+      const PUPIL_AI_API = import.meta.env.VITE_PUPILTREEAI_BASE_URL || 'http://0.0.0.0:8001';
       
       const response = await fetch(
         `${PUPIL_AI_API}/assessment-ai/uploaded-questions/${studentId}/${uploadId}`
