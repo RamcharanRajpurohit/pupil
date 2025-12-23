@@ -6,9 +6,11 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TopicSelectionDialog } from '@/components/assessments/TopicSelectionDialog';
 import { FileUploadQuizDialog } from '@/components/assessments/FileUploadQuizDialog';
 import { PracticeTestHistory } from '@/components/assessments/PracticeTestHistory';
+import { UploadedAssessmentsList } from '@/components/assessments/UploadedAssessmentsList';
 import { 
   FileText, 
   Clock, 
@@ -24,10 +26,34 @@ import {
   BookOpen,
   CheckCircle2,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  List
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Assessment, AssessmentType, AIAssessment, AIAssessmentsResponse } from '@/types';
+
+interface ClassAssessment {
+  id: string;
+  job_id: string | null;
+  status: 'scheduled' | 'completed' | 'pending';
+  created_at: string;
+  test_name: string;
+  subject: string;
+  test_type: string;
+  difficulty: string | null;
+  topics: string[] | null;
+  number_of_questions: number;
+  estimated_time_minutes: number;
+  total_marks: number;
+}
+
+interface ClassAssessmentsResponse {
+  assessments: ClassAssessment[];
+  count: number;
+  limit: number;
+  offset: number;
+  type: string;
+}
 
 const typeConfig: Record<AssessmentType, { icon: typeof FileText; color: string; label: string }> = {
   'practice': { icon: FileText, color: 'bg-blue-500/10 text-blue-500 border-blue-500/20', label: 'Practice' },
@@ -58,8 +84,9 @@ interface RetryState {
 export default function AssessmentsPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated } = useAppStore();
+  const { isAuthenticated, user } = useAppStore();
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [classAssessments, setClassAssessments] = useState<ClassAssessment[]>([]);
   const [aiAssessments, setAiAssessments] = useState<AIAssessment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<AssessmentType | 'all'>('all');
@@ -90,19 +117,33 @@ export default function AssessmentsPage() {
   const loadAssessments = async () => {
     setIsLoading(true);
     try {
-      // Load local practice tests
-      const localData = await api.getAssessments();
-      setAssessments(localData);
-      
       // Load AI-generated assessments from pupil-agents API (only completed ones)
       try {
-        const response: AIAssessmentsResponse = await api.getTeacherAssessments(50, 0);
+        const response: AIAssessmentsResponse = await api.getStudentGeneratedAssessments(50, 0);
         // Only keep completed assessments for user view
         const completedTests = response.assessments.filter(a => a.status === 'completed');
         setAiAssessments(completedTests);
       } catch (apiErr) {
         console.error('Could not load AI assessments:', apiErr);
         // Continue without AI assessments
+      }
+      try {
+        // Load class assessments - use user from zustand store
+        const class_id = user?.profile?.current_class_id;
+        console.log('User from store:', user);
+        console.log('Class ID from user profile:', class_id);
+        
+        if (class_id) {
+          console.log('Fetching student assessments for class:', class_id);
+          const classData: ClassAssessmentsResponse = await api.getStudentAssessments(50, 0, class_id);
+          console.log('Student assessments response:', classData);
+          setClassAssessments(classData.assessments || []);
+        } else {
+          console.warn('No class_id found in user profile. User:', user);
+        }
+      } catch (err) {
+        console.error('Error loading class assessments:', err);
+        console.error('Error details:', err instanceof Error ? err.message : err);
       }
     } catch (err) {
       console.error('Error loading assessments:', err);
@@ -111,10 +152,10 @@ export default function AssessmentsPage() {
     }
   };
 
-  const handleStartTest = (assessmentId: string, isAI: boolean = false) => {
+  const handleStartTest = (assessmentId: string, isAI: boolean = false, isClass: boolean = false) => {
     // All tests now use the same AssessmentPage UI
-    // Pass isAI flag through navigation state
-    navigate(`/assessment/${assessmentId}`, { state: { isAI } });
+    // Pass isAI and isClass flags through navigation state
+    navigate(`/assessment/${assessmentId}`, { state: { isAI, isClass } });
   };
 
   const handleRetryTest = (test: any) => {
@@ -200,6 +241,15 @@ export default function AssessmentsPage() {
           </div>
         </div>
 
+        <Tabs defaultValue="available" className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-3">
+            <TabsTrigger value="available">Available Tests</TabsTrigger>
+            <TabsTrigger value="uploaded">Uploaded</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="available" className="space-y-6 mt-6">
+
         {/* Create Options Cards */}
         <div className="grid md:grid-cols-2 gap-4">
           {/* Custom Practice Test Card */}
@@ -265,21 +315,138 @@ export default function AssessmentsPage() {
           </Card>
         </div>
 
-        {/* Practice Test History */}
-        <PracticeTestHistory key={historyKey} onRetry={handleRetryTest} />
+        {/* Class Assessments Section */}
+        {classAssessments.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-primary" />
+              <h2 className="text-xl font-semibold">Class Assessments</h2>
+              <Badge variant="secondary">{classAssessments.length}</Badge>
+            </div>
+            
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {classAssessments.map(assessment => {
+                const StatusIcon = statusConfig[assessment.status]?.icon || AlertCircle;
+                const statusColor = statusConfig[assessment.status]?.color || 'text-gray-500';
+                const statusLabel = statusConfig[assessment.status]?.label || assessment.status;
+                
+                return (
+                  <Card key={assessment.id} className="hover:shadow-lg transition-shadow">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between mb-2">
+                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+                          <Target className="w-3 h-3 mr-1" />
+                          {assessment.test_type}
+                        </Badge>
+                        <Badge 
+                          variant="outline" 
+                          className={cn(
+                            assessment.status === 'scheduled' && 'bg-blue-500/10 text-blue-500 border-blue-500/20',
+                            assessment.status === 'completed' && 'bg-green-500/10 text-green-500 border-green-500/20',
+                            assessment.status === 'pending' && 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20'
+                          )}
+                        >
+                          <StatusIcon className={cn("w-3 h-3 mr-1", statusColor)} />
+                          {statusLabel}
+                        </Badge>
+                      </div>
+                      <CardTitle className="text-lg">{assessment.test_name}</CardTitle>
+                      <CardDescription>{assessment.subject}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {assessment.topics && assessment.topics.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {assessment.topics.slice(0, 3).map((topic, idx) => (
+                            <Badge key={idx} variant="secondary" className="text-xs">
+                              {topic}
+                            </Badge>
+                          ))}
+                          {assessment.topics.length > 3 && (
+                            <Badge variant="secondary" className="text-xs">
+                              +{assessment.topics.length - 3} more
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <FileText className="w-4 h-4" />
+                          <span>{assessment.number_of_questions || 'TBD'} questions</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Clock className="w-4 h-4" />
+                          <span>{assessment.estimated_time_minutes} min</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Target className="w-4 h-4" />
+                          <span>{assessment.total_marks} marks</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Calendar className="w-4 h-4" />
+                          <span>{new Date(assessment.created_at).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+
+                      {/* <Button 
+                        className="w-full gap-2"
+                        onClick={() => handleStartTest(assessment.id)}
+                        disabled={assessment.status === 'scheduled' || assessment.number_of_questions === 0}
+                        variant={assessment.status === 'completed' ? 'outline' : 'default'}
+                      >
+                        {assessment.status === 'scheduled' ? (
+                          <>
+                            <Calendar className="w-4 h-4" />
+                            Scheduled
+                          </>
+                        ) : assessment.status === 'completed' ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4" />
+                            View Results
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-4 h-4" />
+                            Start Test
+                          </>
+                        )}
+                      </Button> */}
+                      <Button 
+                        className="w-full gap-2"
+                        onClick={() => handleStartTest(assessment.id, false, true)}
+                       
+                      >
+                          <>
+                            <Play className="w-4 h-4" />
+                            Start Test
+                          </>
+                      </Button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
-        <div className="flex gap-2 flex-wrap">
-          {filters.map(f => (
-            <Button
-              key={f.value}
-              variant={filter === f.value ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilter(f.value)}
-            >
-              {f.label}
-            </Button>
-          ))}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <List className="w-5 h-5 text-primary" />
+            <h2 className="text-xl font-semibold">Practice Tests</h2>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {filters.map(f => (
+              <Button
+                key={f.value}
+                variant={filter === f.value ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setFilter(f.value)}
+              >
+                {f.label}
+              </Button>
+            ))}
+          </div>
         </div>
 
         {/* Assessment Grid - Unified display */}
@@ -358,6 +525,19 @@ export default function AssessmentsPage() {
             );
           })}
         </div>
+          </TabsContent>
+
+          <TabsContent value="uploaded" className="mt-6">
+            <UploadedAssessmentsList />
+          </TabsContent>
+
+          <TabsContent value="history" className="mt-6">
+            <PracticeTestHistory 
+              key={historyKey}
+              onRetry={handleRetryTest}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Topic Selection Dialog */}

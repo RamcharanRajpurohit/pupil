@@ -5,19 +5,31 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
 import { GraduationCap, Sparkles, BookOpen, Brain, Loader2 } from 'lucide-react';
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const { login, isLoading } = useAppStore();
-  const [email, setEmail] = useState('student@demo.com');
-  const [password, setPassword] = useState('demo123');
+  const { toast } = useToast();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const success = await login(email, password);
     if (success) {
-      navigate('/dashboard');
+      toast({
+        title: 'Login successful',
+        description: 'Welcome back!',
+      });
+      navigate('/assessments');
+    } else {
+      toast({
+        title: 'Login failed',
+        description: 'Please check your credentials and try again.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -92,7 +104,7 @@ export default function LoginPage() {
                   <Label htmlFor="email">Email</Label>
                   <Input
                     id="email"
-                    type="email"
+                    type="text"
                     placeholder="Enter your email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -130,7 +142,7 @@ export default function LoginPage() {
                 </Button>
 
                 <p className="text-center text-sm text-muted-foreground">
-                  Demo credentials are pre-filled. Just click Sign In!
+                  Enter your credentials to sign in
                 </p>
               </form>
             </CardContent>

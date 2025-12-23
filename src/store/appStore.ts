@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
+import { API_ENDPOINTS } from '@/config/api';
 import type { 
   User, 
   Course, 
@@ -117,38 +118,80 @@ export const useAppStore = create<AppState>()(
         
         login: async (email, password) => {
           set({ isLoading: true, loadingMessage: 'Signing in...' });
-          await new Promise(resolve => setTimeout(resolve, 1000));
           
-          const mockUser: User = {
-            id: '1',
-            name: 'Alex Johnson',
-            email: email,
-            avatar: undefined,
-            role: 'student',
-            enrolledCourses: ['course-1', 'course-2', 'course-3'],
-            createdAt: new Date(),
-          };
-          
-          set({ 
-            user: mockUser, 
-            isAuthenticated: true, 
-            isLoading: false,
-            loadingMessage: '' 
-          });
-          return true;
+          try {
+            const response = await fetch(API_ENDPOINTS.LOGIN, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ username: email, password }),
+            });
+
+            if (!response.ok) {
+              const error = await response.json();
+              console.error('Login failed:', error);
+              set({ isLoading: false, loadingMessage: '' });
+              return false;
+            }
+
+            const userData = await response.json();
+            // Response directly contains user data from /users/login_with_credentials
+            // Token is not provided in current API version
+            const token = null;
+            // Map the API response to our User type
+            const user: User = {
+              id: userData._id || userData.id,
+              name: userData.name,
+              email: userData.email,
+              avatar: userData.photoUrl || userData.photo_url || undefined,
+              role: userData.role || 'student',
+              enrolledCourses: [], // Will be populated when we have that endpoint
+              createdAt: new Date(userData.created_at || userData.createdAt || new Date()),
+              // Store additional profile data
+              profile: userData.profile,
+              institutionId: userData.institution_id || userData.institutionId,
+              status: userData.status,
+            };
+
+            // Store token in localStorage for future requests (only if it exists)
+            if (token && token !== 'null' && token !== 'undefined') {
+              localStorage.setItem('auth_token', token);
+            } else {
+              // Clear any existing token if API returns null
+              localStorage.removeItem('auth_token');
+            }
+            
+            set({ 
+              user, 
+              isAuthenticated: true, 
+              isLoading: false,
+              loadingMessage: '' 
+            });
+            return true;
+          } catch (error) {
+            console.error('Login error:', error);
+            set({ isLoading: false, loadingMessage: '' });
+            return false;
+          }
         },
         
-        logout: () => set({ 
-          user: null, 
-          isAuthenticated: false,
-          courses: [],
-          activeCourse: null,
-          activeQuiz: null,
-          currentQuizAttempt: null,
-          activeAssessment: null,
-          currentAssessmentAttempt: null,
-          chatMessages: [],
-        }),
+        logout: () => {
+          // Clear stored token
+          localStorage.removeItem('auth_token');
+          
+          set({ 
+            user: null, 
+            isAuthenticated: false,
+            courses: [],
+            activeCourse: null,
+            activeQuiz: null,
+            currentQuizAttempt: null,
+            activeAssessment: null,
+            currentAssessmentAttempt: null,
+            chatMessages: [],
+          });
+        },
 
         // Course Actions
         setCourses: (courses) => set({ courses }),

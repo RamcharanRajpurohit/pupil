@@ -17,7 +17,7 @@ interface CBTExamProps {
   title: string;
   questions: Question[];
   timeLimit: number; // in minutes
-  onSubmit: (answers: Record<string, number | null>, timeTaken: number) => void;
+  onSubmit: (answers: Record<string, number | null | number[] | string>, timeTaken: number, timings?: Record<string, number>) => void;
   onExit: () => void;
   showInstantFeedback?: boolean;
   enableSecurity?: boolean;
@@ -25,9 +25,12 @@ interface CBTExamProps {
 }
 
 interface QuestionState {
-  selectedAnswer: number | null;
+  selectedAnswer: number | null | number[]; // Support multiple selections
+  textAnswer?: string; // For Integer and Descriptive types
   status: QuestionStatus;
   isCorrect?: boolean;
+  timeSpent?: number; // Time spent on this question in seconds
+  startTime?: number; // Timestamp when question was opened
 }
 
 export function CBTExamInterface({ 
@@ -43,10 +46,13 @@ export function CBTExamInterface({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [questionStates, setQuestionStates] = useState<Record<string, QuestionState>>(() => {
     const initial: Record<string, QuestionState> = {};
+    const now = Date.now();
     questions.forEach((q, i) => {
       initial[q.id] = { 
         selectedAnswer: null, 
-        status: i === 0 ? 'not-answered' : 'not-visited' 
+        status: i === 0 ? 'not-answered' : 'not-visited',
+        timeSpent: 0,
+        startTime: i === 0 ? now : undefined // Start timing for first question
       };
     });
     return initial;
@@ -122,12 +128,48 @@ export function CBTExamInterface({
 
   const handleSelectAnswer = (answerIndex: number) => {
     if (showFeedback) return;
+    const questionType = currentQuestion.questionType || 'MCQ';
+    const isMultipleCorrect = questionType === 'MCQ' && typeof currentQuestion.correctAnswer === 'string' && currentQuestion.correctAnswer.includes(',');
+    
+    setQuestionStates(prev => {
+      const current = prev[currentQuestion.id];
+      let newSelectedAnswer: number | number[] | null;
+      
+      if (isMultipleCorrect) {
+        // Handle multiple selection
+        const currentSelections = Array.isArray(current.selectedAnswer) ? current.selectedAnswer : [];
+        if (currentSelections.includes(answerIndex)) {
+          // Remove if already selected
+          newSelectedAnswer = currentSelections.filter(i => i !== answerIndex);
+          if (newSelectedAnswer.length === 0) newSelectedAnswer = null;
+        } else {
+          // Add to selections
+          newSelectedAnswer = [...currentSelections, answerIndex].sort();
+        }
+      } else {
+        // Single selection
+        newSelectedAnswer = answerIndex;
+      }
+      
+      return {
+        ...prev,
+        [currentQuestion.id]: {
+          ...current,
+          selectedAnswer: newSelectedAnswer,
+          status: current.status === 'marked' ? 'answered-marked' : 'answered'
+        }
+      };
+    });
+  };
+  
+  const handleTextAnswer = (text: string) => {
+    if (showFeedback) return;
     setQuestionStates(prev => ({
       ...prev,
       [currentQuestion.id]: {
         ...prev[currentQuestion.id],
-        selectedAnswer: answerIndex,
-        status: prev[currentQuestion.id].status === 'marked' ? 'answered-marked' : 'answered'
+        textAnswer: text,
+        status: text.trim() ? (prev[currentQuestion.id].status === 'marked' ? 'answered-marked' : 'answered') : 'not-answered'
       }
     }));
   };
@@ -138,6 +180,7 @@ export function CBTExamInterface({
       [currentQuestion.id]: {
         ...prev[currentQuestion.id],
         selectedAnswer: null,
+        textAnswer: undefined,
         status: prev[currentQuestion.id].status === 'answered-marked' ? 'marked' : 'not-answered'
       }
     }));
@@ -164,17 +207,40 @@ export function CBTExamInterface({
   };
 
   const navigateToQuestion = (index: number) => {
+    const now = Date.now();
+    const currentQuestion = questions[currentIndex];
+    const targetQuestion = questions[index];
+    
     setShowFeedback(false);
     setCurrentIndex(index);
     setQuestionStates(prev => {
-      const targetQuestion = questions[index];
-      if (prev[targetQuestion.id].status === 'not-visited') {
-        return {
-          ...prev,
-          [targetQuestion.id]: { ...prev[targetQuestion.id], status: 'not-answered' }
+      const newStates = { ...prev };
+      
+      // Save time spent on current question
+      if (newStates[currentQuestion.id].startTime) {
+        const timeOnQuestion = Math.floor((now - newStates[currentQuestion.id].startTime!) / 1000);
+        newStates[currentQuestion.id] = {
+          ...newStates[currentQuestion.id],
+          timeSpent: (newStates[currentQuestion.id].timeSpent || 0) + timeOnQuestion,
+          startTime: undefined
         };
       }
-      return prev;
+      
+      // Start timing for target question
+      if (newStates[targetQuestion.id].status === 'not-visited') {
+        newStates[targetQuestion.id] = {
+          ...newStates[targetQuestion.id],
+          status: 'not-answered',
+          startTime: now
+        };
+      } else {
+        newStates[targetQuestion.id] = {
+          ...newStates[targetQuestion.id],
+          startTime: now
+        };
+      }
+      
+      return newStates;
     });
   };
 
@@ -189,7 +255,6 @@ export function CBTExamInterface({
       return;
     }
     
-    setShowFeedback(false);
     if (currentIndex < questions.length - 1) {
       navigateToQuestion(currentIndex + 1);
     }
@@ -211,10 +276,41 @@ export function CBTExamInterface({
     if (examCompleted) return;
     setExamCompleted(true);
     
-    const answers: Record<string, number | null> = {};
+    const now = Date.now();
+    const currentQuestion = questions[currentIndex];
+    
+    // Save time for current question before submitting
+    const finalStates = { ...questionStates };
+    if (finalStates[currentQuestion.id].startTime) {
+      const timeOnQuestion = Math.floor((now - finalStates[currentQuestion.id].startTime!) / 1000);
+      finalStates[currentQuestion.id] = {
+        ...finalStates[currentQuestion.id],
+        timeSpent: (finalStates[currentQuestion.id].timeSpent || 0) + timeOnQuestion,
+        startTime: undefined
+      };
+    }
+    
+    const answers: Record<string, number | null | number[] | string> = {};
+    const timings: Record<string, number> = {};
+    
     questions.forEach(q => {
-      answers[q.id] = questionStates[q.id].selectedAnswer;
+      const state = finalStates[q.id];
+      // For Integer and Descriptive types, use textAnswer
+      if (q.questionType === 'Integer' || q.questionType === 'Descriptive') {
+        answers[q.id] = state.textAnswer || '';
+      } else {
+        // For MCQ, use selectedAnswer (can be single or multiple)
+        answers[q.id] = state.selectedAnswer;
+      }
+      
+      // Store time spent on this question
+      let timeForQuestion = state.timeSpent || 0;
+      if (state.startTime) {
+        timeForQuestion += Math.floor((now - state.startTime) / 1000);
+      }
+      timings[q.id] = timeForQuestion;
     });
+    
     const timeTaken = timeLimit * 60 - timeRemaining;
     
     // Exit fullscreen before submitting
@@ -222,8 +318,8 @@ export function CBTExamInterface({
       await exitFullscreen();
     }
     
-    onSubmit(answers, timeTaken);
-  }, [examCompleted, questions, questionStates, timeLimit, timeRemaining, enableSecurity, exitFullscreen, onSubmit]);
+    onSubmit(answers, timeTaken, timings);
+  }, [examCompleted, questions, questionStates, timeLimit, timeRemaining, enableSecurity, exitFullscreen, onSubmit, currentIndex]);
 
   // Keep a stable reference for effects that should not restart on timer ticks
   useEffect(() => {
@@ -516,6 +612,16 @@ export function CBTExamInterface({
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <span className="text-lg font-bold">Question {currentIndex + 1}</span>
+                {currentQuestion.questionType && (
+                  <span className={cn(
+                    "px-2 py-0.5 rounded text-xs font-medium",
+                    currentQuestion.questionType === 'MCQ' && "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+                    currentQuestion.questionType === 'Integer' && "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
+                    currentQuestion.questionType === 'Descriptive' && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+                  )}>
+                    {currentQuestion.questionType}
+                  </span>
+                )}
                 <span className={cn(
                   "px-2 py-0.5 rounded text-xs font-medium",
                   currentQuestion.difficulty === 'easy' && "bg-success/10 text-success",
@@ -538,55 +644,109 @@ export function CBTExamInterface({
               </CardContent>
             </Card>
 
-            {/* Options */}
+            {/* Answer Input - varies by question type */}
             <div className="space-y-3 mb-6">
-              {currentQuestion.options?.map((option, idx) => {
-                const isSelected = currentState.selectedAnswer === idx;
-                const isCorrect = idx === currentQuestion.correctAnswer;
-                const showCorrectness = showFeedback && showInstantFeedback;
-                
-                let buttonClass = "w-full h-auto py-4 px-5 justify-start text-left border-2 transition-all";
-                
-                if (showCorrectness) {
-                  if (isCorrect) {
-                    buttonClass += " border-green-500 bg-green-50 dark:bg-green-500/10";
-                  } else if (isSelected && !isCorrect) {
-                    buttonClass += " border-red-500 bg-red-50 dark:bg-red-500/10";
-                  } else {
-                    buttonClass += " border-border";
-                  }
-                } else if (isSelected) {
-                  buttonClass += " border-primary bg-primary/5";
-                } else {
-                  buttonClass += " border-border hover:border-primary/50";
-                }
+              {currentQuestion.questionType === 'Integer' ? (
+                // Integer type - show text input for numerical answer
+                <Card>
+                  <CardContent className="p-6">
+                    <label className="block text-sm font-medium mb-2">
+                      Enter your numerical answer:
+                    </label>
+                    <input
+                      type="number"
+                      className="w-full px-4 py-3 border-2 border-border rounded-lg focus:border-primary focus:outline-none text-lg"
+                      placeholder="Enter number..."
+                      value={currentState.textAnswer || ''}
+                      onChange={(e) => handleTextAnswer(e.target.value)}
+                      disabled={showFeedback}
+                    />
+                  </CardContent>
+                </Card>
+              ) : currentQuestion.questionType === 'Descriptive' ? (
+                // Descriptive type - show textarea for text answer
+                <Card>
+                  <CardContent className="p-6">
+                    <label className="block text-sm font-medium mb-2">
+                      Write your answer:
+                    </label>
+                    <textarea
+                      className="w-full px-4 py-3 border-2 border-border rounded-lg focus:border-primary focus:outline-none text-base min-h-[150px] resize-y"
+                      placeholder="Type your answer here..."
+                      value={currentState.textAnswer || ''}
+                      onChange={(e) => handleTextAnswer(e.target.value)}
+                      disabled={showFeedback}
+                    />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {(currentState.textAnswer || '').length} characters
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                // MCQ type - show options
+                <>
+                  {typeof currentQuestion.correctAnswer === 'string' && currentQuestion.correctAnswer.includes(',') && (
+                    <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
+                      <p className="text-sm text-blue-900 dark:text-blue-100 font-medium">
+                        ℹ️ Multiple correct answers - Select all that apply
+                      </p>
+                    </div>
+                  )}
+                  {currentQuestion.options?.map((option, idx) => {
+                    const isMultiSelect = typeof currentQuestion.correctAnswer === 'string' && currentQuestion.correctAnswer.includes(',');
+                    const isSelected = Array.isArray(currentState.selectedAnswer) 
+                      ? currentState.selectedAnswer.includes(idx)
+                      : currentState.selectedAnswer === idx;
+                    const isCorrect = idx === currentQuestion.correctAnswer;
+                    const showCorrectness = showFeedback && showInstantFeedback;
+                    
+                    let buttonClass = "w-full h-auto py-4 px-5 justify-start text-left border-2 transition-all";
+                    
+                    if (showCorrectness) {
+                      if (isCorrect) {
+                        buttonClass += " border-green-500 bg-green-50 dark:bg-green-500/10";
+                      } else if (isSelected && !isCorrect) {
+                        buttonClass += " border-red-500 bg-red-50 dark:bg-red-500/10";
+                      } else {
+                        buttonClass += " border-border";
+                      }
+                    } else if (isSelected) {
+                      buttonClass += " border-primary bg-primary/5";
+                    } else {
+                      buttonClass += " border-border hover:border-primary/50";
+                    }
 
-                return (
-                  <button
-                    key={idx}
-                    className={cn(buttonClass, "rounded-lg flex items-center")}
-                    onClick={() => handleSelectAnswer(idx)}
-                    disabled={showFeedback}
-                  >
-                    <span className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold mr-4 flex-shrink-0 transition-colors",
-                      showCorrectness && isCorrect && "bg-green-500 text-white",
-                      showCorrectness && isSelected && !isCorrect && "bg-red-500 text-white",
-                      !showCorrectness && isSelected && "bg-primary text-primary-foreground",
-                      !showCorrectness && !isSelected && "bg-secondary text-foreground"
-                    )}>
-                      {String.fromCharCode(65 + idx)}
-                    </span>
-                    <span className="flex-1 text-foreground">{option}</span>
-                    {showCorrectness && isCorrect && (
-                      <CheckCircle className="w-5 h-5 text-green-500 ml-2" />
-                    )}
-                    {showCorrectness && isSelected && !isCorrect && (
-                      <XCircle className="w-5 h-5 text-red-500 ml-2" />
-                    )}
-                  </button>
-                );
-              })}
+                    return (
+                      <button
+                        key={idx}
+                        className={cn(buttonClass, "rounded-lg flex items-center")}
+                        onClick={() => handleSelectAnswer(idx)}
+                        disabled={showFeedback}
+                      >
+                        <span className={cn(
+                          "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold mr-4 flex-shrink-0 transition-colors",
+                          showCorrectness && isCorrect && "bg-green-500 text-white",
+                          showCorrectness && isSelected && !isCorrect && "bg-red-500 text-white",
+                          !showCorrectness && isSelected && "bg-primary text-primary-foreground",
+                          !showCorrectness && !isSelected && "bg-secondary text-foreground"
+                        )}>
+                          {isMultiSelect && (
+                            <span className="mr-1">{isSelected ? '☑' : '☐'}</span>
+                          )}
+                          {String.fromCharCode(65 + idx)}
+                        </span>
+                        <span className="flex-1 text-foreground">{option}</span>
+                        {showCorrectness && isCorrect && (
+                          <CheckCircle className="w-5 h-5 text-green-500 ml-2" />
+                        )}
+                        {showCorrectness && isSelected && !isCorrect && (
+                          <XCircle className="w-5 h-5 text-red-500 ml-2" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
             </div>
 
             {/* Feedback */}

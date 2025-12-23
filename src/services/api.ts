@@ -280,37 +280,34 @@ export const api = {
   },
 
   // AI-Generated Assessments from pupil-agents API
-  async getTeacherAssessments(limit: number = 50, offset: number = 0): Promise<any> {
+  async getStudentGeneratedAssessments(limit: number = 50, offset: number = 0): Promise<any> {
     try {
-      // Use import.meta.env for Vite environment variables
-      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API || 'http://localhost:8080';
+      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API;
+      if (!PUPIL_AGENTS_API) throw new Error('PUPIL_AGENTS_API env variable not set');
       const response = await fetch(
-        `${PUPIL_AGENTS_API}/api/assessments/teacher?limit=${limit}&offset=${offset}`
+        `${PUPIL_AGENTS_API}/api/assessments/student-generated?limit=${limit}&offset=${offset}`
       );
-      
       if (!response.ok) {
-        throw new Error(`Failed to fetch teacher assessments: ${response.statusText}`);
+        throw new Error(`Failed to fetch student-generated assessments: ${response.statusText}`);
       }
-      
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('Error fetching teacher assessments:', error);
+      console.error('Error fetching student-generated assessments:', error);
       throw error;
     }
   },
 
   async getAIAssessmentById(assessmentId: string): Promise<any> {
     try {
-      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API || 'http://localhost:8080';
+      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API;
+      if (!PUPIL_AGENTS_API) throw new Error('PUPIL_AGENTS_API env variable not set');
       const response = await fetch(
         `${PUPIL_AGENTS_API}/api/assessments/${assessmentId}`
       );
-      
       if (!response.ok) {
         throw new Error(`Failed to fetch assessment: ${response.statusText}`);
       }
-      
       const data = await response.json();
       return data;
     } catch (error) {
@@ -319,21 +316,198 @@ export const api = {
     }
   },
 
-  async getStudentAssessments(limit: number = 50, offset: number = 0): Promise<any> {
+  async getStudentAssessments(limit: number = 50, offset: number = 0,class_id: string): Promise<any> {
     try {
-      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API || 'http://localhost:8080';
+      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API;
+      if (!PUPIL_AGENTS_API) throw new Error('PUPIL_AGENTS_API env variable not set');
       const response = await fetch(
-        `${PUPIL_AGENTS_API}/api/assessments/student?limit=${limit}&offset=${offset}`
+        `${PUPIL_AGENTS_API}/api/assessments/student/${class_id}?limit=${limit}&offset=${offset}`
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to fetch student assessments: ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching student assessments:', error);
+      throw error;
+    }
+  },
+
+  async getClassAssessmentById(assessmentId: string): Promise<any> {
+    try {
+      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API;
+      if (!PUPIL_AGENTS_API) throw new Error('PUPIL_AGENTS_API env variable not set');
+      const response = await fetch(
+        `${PUPIL_AGENTS_API}/api/assessments/class/${assessmentId}`
+      );
+      if (!response.ok) {
+        throw new Error(`Failed to fetch class assessment: ${response.statusText}`);
+      }
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching class assessment by ID:', error);
+      throw error;
+    }
+  },
+
+  async submitAssessment(submissionData: any): Promise<any> {
+    try {
+      const PUPIL_AGENTS_API = import.meta.env.VITE_PUPIL_AGENTS_API;
+      if (!PUPIL_AGENTS_API) throw new Error('PUPIL_AGENTS_API env variable not set');
+      console.log('Submitting assessment data:', submissionData);
+      const response = await fetch(
+        `${PUPIL_AGENTS_API}/api/assessments/submit`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(submissionData),
+        }
+      );
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        console.error('API Error Response:', errorData);
+        throw new Error(`Failed to submit assessment: ${response.statusText}${errorData ? ` - ${JSON.stringify(errorData)}` : ''}`);
+      }
+      const data = await response.json();
+      console.log('Submission response:', data);
+      return data;
+    } catch (error) {
+      console.error('Error submitting assessment:', error);
+      throw error;
+    }
+  },
+
+  async submitClassAssessment(submissionData: {
+    assessment_id: string;
+    student_id: string;
+    class_id: string;
+    total_time: number;
+    submission_date: string;
+    questions: Array<{
+      question: string;
+      options: string[];
+      questionType: string;
+      user_answer: string;
+      correct_answer: string | null;
+      taking_time: string;
+    }>;
+  }): Promise<any> {
+    try {
+      const BACKEND_API = import.meta.env.VITE_API_URL;
+      if (!BACKEND_API) throw new Error('API_URL env variable not set');
+      console.log('Submitting class assessment data:', submissionData);
+      // Create FormData for multipart/form-data submission
+      const formData = new FormData();
+      formData.append('student_id', submissionData.student_id);
+      formData.append('assessment_id', submissionData.assessment_id);
+      formData.append('class_id', submissionData.class_id);
+      formData.append('total_time', submissionData.total_time.toString());
+      formData.append('submission_date', submissionData.submission_date);
+      formData.append('questions', JSON.stringify(submissionData.questions));
+      
+      console.log('FormData contents:', {
+        student_id: submissionData.student_id,
+        assessment_id: submissionData.assessment_id,
+        class_id: submissionData.class_id,
+        total_time: submissionData.total_time,
+        submission_date: submissionData.submission_date,
+        questions_count: submissionData.questions.length
+      });
+      
+      const response = await fetch(
+        `${BACKEND_API}/assessment/student/submit`,
+        {
+          method: 'POST',
+          body: formData,
+          // Don't set Content-Type header - browser will set it with boundary
+        }
       );
       
       if (!response.ok) {
-        throw new Error(`Failed to fetch student assessments: ${response.statusText}`);
+        const errorData = await response.json().catch(() => null);
+        console.error('API Error Response:', errorData);
+        throw new Error(`Failed to submit class assessment: ${response.statusText}${errorData?.detail ? ` - ${errorData.detail}` : ''}`);
+      }
+      
+      const data = await response.json();
+      console.log('Class assessment submission response:', data);
+      return data;
+    } catch (error) {
+      console.error('Error submitting class assessment:', error);
+      throw error;
+    }
+  },
+
+  // Assessment AI - PDF Upload & Question Extraction
+  async uploadPDFQuestions(studentId: string, pdfFile: File): Promise<any> {
+    try {
+      const PUPIL_AI_API = import.meta.env.VITE_PUPIL_AI_API || 'http://0.0.0.0:8001';
+      
+      const formData = new FormData();
+      formData.append('student_id', studentId);
+      formData.append('pdf_file', pdfFile);
+      
+      const response = await fetch(
+        `${PUPIL_AI_API}/ahs-upload/upload-questions`,
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(`Failed to upload PDF: ${response.statusText}${errorData?.detail ? ` - ${errorData.detail}` : ''}`);
       }
       
       const data = await response.json();
       return data;
     } catch (error) {
-      console.error('Error fetching student assessments:', error);
+      console.error('Error uploading PDF:', error);
+      throw error;
+    }
+  },
+
+  async getUploadedQuestions(studentId: string): Promise<any> {
+    try {
+      const PUPIL_AI_API = import.meta.env.VITE_PUPIL_AI_API || 'http://0.0.0.0:8001';
+      
+      const response = await fetch(
+        `${PUPIL_AI_API}/ahs-upload/upload-questions/${studentId}`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch uploaded questions: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching uploaded questions:', error);
+      throw error;
+    }
+  },
+
+  async getSpecificUpload(studentId: string, uploadId: string): Promise<any> {
+    try {
+      const PUPIL_AI_API = import.meta.env.VITE_PUPIL_AI_API || 'http://0.0.0.0:8001';
+      
+      const response = await fetch(
+        `${PUPIL_AI_API}/assessment-ai/uploaded-questions/${studentId}/${uploadId}`
+      );
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch upload: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Error fetching specific upload:', error);
       throw error;
     }
   },

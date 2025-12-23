@@ -7,6 +7,20 @@ export interface User {
   role: 'student' | 'teacher';
   enrolledCourses: string[];
   createdAt: Date;
+  // Additional fields from pupiltree API
+  profile?: {
+    grade?: string;
+    section?: string;
+    current_class_id?: string;
+    class_name?: string;
+    dob?: string | null;
+    gender?: string;
+    parents_details?: {
+      father?: any;
+    };
+  };
+  institutionId?: string;
+  status?: string;
 }
 
 // Course Types
@@ -98,8 +112,10 @@ export interface Question {
   id: string;
   text: string;
   type: 'mcq' | 'true-false' | 'short-answer';
+  questionType?: 'MCQ' | 'Integer' | 'Descriptive'; // For AI-generated questions
   options?: string[];
-  correctAnswer: string | number;
+  optionKeys?: string[]; // Original keys (A, B, C, D) from API for submission
+  correctAnswer: string | number | string[]; // Support multiple answers
   explanation: string;
   conceptId: string;
   conceptName: string;
@@ -235,7 +251,8 @@ export interface ChatSession {
 
 // AI-Generated Assessment Types (from pupil-agents API)
 export interface AIAssessment {
-  id: string;
+  id?: string; // Sometimes returned as id
+  _id?: string; // Sometimes returned as _id
   job_id: string;
   status: 'completed' | 'failed' | 'pending';
   created_at: string | null;
@@ -295,4 +312,33 @@ export interface AIAssessmentsResponse {
   limit: number;
   offset: number;
   type: 'teacher' | 'student';
+}
+
+// Assessment Submission Types
+export interface AssessmentSubmissionAnswer {
+  question_id: string;
+  selected_answer: string;
+  time_taken_seconds: number;
+}
+
+export interface AssessmentSubmissionRequest {
+  assessment_id: string;
+  student_id: string;
+  answers: AssessmentSubmissionAnswer[];
+  total_time_seconds: number;
+  submitted_at: string;
+}
+
+export interface AssessmentSubmissionResponse {
+  submission_id: string;
+  assessment_id: string;
+  student_id: string;
+  total_questions: number;
+  answered_questions: number;
+  score: number;
+  max_score: number;
+  percentage: number;
+  time_taken_seconds: number;
+  submitted_at: string;
+  result_summary: Record<string, any>;
 }
