@@ -274,10 +274,7 @@ export default function AssessmentsPage() {
                       Select difficulty
                     </span>
                   </div>
-                  <Button onClick={() => setTopicDialogOpen(true)} className="gap-2">
-                    <Plus className="w-4 h-4" />
-                    Create Test
-                  </Button>
+                  <div className="text-primary font-semibold text-base">Coming Soon</div>
                 </div>
               </div>
             </CardContent>

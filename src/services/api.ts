@@ -397,7 +397,7 @@ export const api = {
     }>;
   }): Promise<any> {
     try {
-      const BACKEND_API = import.meta.env.VITE_API_URL;
+      const BACKEND_API = import.meta.env.VITE_PUPILTREEAI_BASE_URL;
       if (!BACKEND_API) throw new Error('API_URL env variable not set');
       console.log('Submitting class assessment data:', submissionData);
       // Create FormData for multipart/form-data submission
@@ -426,10 +426,19 @@ export const api = {
           // Don't set Content-Type header - browser will set it with boundary
         }
       );
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => null);
         console.error('API Error Response:', errorData);
+
+        // Handle 409 Conflict specifically (already submitted)
+        if (response.status === 409) {
+          const error: any = new Error(errorData?.detail || 'You have already submitted this assessment');
+          error.status = 409;
+          error.isAlreadySubmitted = true;
+          throw error;
+        }
+
         throw new Error(`Failed to submit class assessment: ${response.statusText}${errorData?.detail ? ` - ${errorData.detail}` : ''}`);
       }
       

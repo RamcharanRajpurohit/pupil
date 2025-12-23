@@ -249,13 +249,26 @@ export default function AssessmentPage() {
         };
 
         console.log('Constructed class assessment submission data:', classSubmissionData);
-        const response = await api.submitClassAssessment(classSubmissionData);
-        console.log('Class assessment submission response:', response);
-        
-        // Show success message and redirect
-        alert(`Assessment submitted successfully! Submission ID: ${response.submission_id}`);
-        navigate('/assessments');
-        return;
+
+        try {
+          const response = await api.submitClassAssessment(classSubmissionData);
+          console.log('Class assessment submission response:', response);
+
+          // Show success message and redirect
+          alert(`Assessment submitted successfully! Submission ID: ${response.submission_id}`);
+          navigate('/assessments');
+          return;
+        } catch (submitError: any) {
+          // Check if this is a 409 Conflict error (already submitted)
+          if (submitError.isAlreadySubmitted || submitError.status === 409) {
+            console.log('Assessment already submitted, redirecting to assessments page');
+            alert(submitError.message || 'You have already submitted this assessment');
+            navigate('/assessments');
+            return;
+          }
+          // Re-throw other errors to be handled by outer catch
+          throw submitError;
+        }
       } else if (isAIAssessment) {
         // Submit to the API endpoint for AI assessments
         console.log('Assessment:', assessment);
